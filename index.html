@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>POMPAC Contributions – Data Driven</title>
+<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+<style>
+    body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f7f7f7; }
+    h1 { text-align: center; color: #34495e; }
+    #login-form, #dashboard { max-width: 1000px; margin: 0 auto; background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .form-group { margin-bottom: 15px; }
+    label { display: block; margin-bottom: 5px; font-weight: bold; }
+    input[type="text"] { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+    button { padding: 10px 20px; background-color: #007bff; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; }
+    button:hover { background-color: #0056b3; }
+    .summary { display: flex; justify-content: space-between; margin-bottom: 15px; font-weight: bold; }
+    .summary div { flex: 1; text-align: center; }
+    #error-message { color: red; margin-top: 10px; }
+    #chart, #yearChart { width: 100%; height: 400px; }
+</style>
+</head>
+<body>
+<h1>POMPAC Contributions</h1>
+<div id="login-form">
+    <div class="form-group">
+        <label for="username">Member Login (Enter Last Name & First Initial or Full Name)</label>
+        <input type="text" id="username" placeholder="e.g., Arscott K or Karen Arscott" />
+    </div>
+    <button onclick="login()">Login</button>
+    <div id="error-message"></div>
+    <p>Enter your last name and first initial (e.g., <em>Doe J</em>) or full name to view your personal donation history and yearly totals.</p>
+</div>
+<div id="dashboard" style="display:none;">
+    <div class="summary">
+        <div>Total: $<span id="summary-total"></span></div>
+        <div>Average: $<span id="summary-average"></span></div>
+        <div>Contributions: <span id="summary-count"></span></div>
+    </div>
+    <div id="chart"></div>
+    <h3 style="text-align:center;">Yearly Totals</h3>
+    <div id="yearChart"></div>
+    <button onclick="logout()" style="margin-top: 20px;">Logout</button>
+</div>
+<script>
+let membersData = {};
+let searchMap = {};
+
+function buildSearchMap() {
+    searchMap = {};
+    for (const name in membersData) {
+        const parts = name.split(' ');
+        let first = parts[0];
+        let last = parts.slice(1).join(' ');
+        if (!last) last = parts[0];
+        const key = last.toLowerCase().replace(/[^a-z0-9]/g, '') + ' ' + first[0].toLowerCase();
+        if (!searchMap[key]) searchMap[key] = name;
+    }
+}
+
+function normalizeKey(input) {
+    return input.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim().replace(/\s+/g, ' ');
+}
+
+function searchMember(query) {
+    const normalized = query.toLowerCase().trim();
+    for (const name in membersData) {
+        if (name.toLowerCase() === normalized) return name;
+    }
+    const key = normalizeKey(query);
+    if (searchMap.hasOwnProperty(key)) return searchMap[key];
+    const tokens = key.split(' ');
+    let matches = [];
+    for (const name in membersData) {
+        const nameNorm = name.toLowerCase();
+        let match = true;
+        for (const token of tokens) {
+            if (!nameNorm.includes(token)) { match = false; break; }
+        }
+        if (match) matches.push(name);
+    }
+    return matches.length === 1 ? matches[0] : null;
+}
+
+function login() {
+    const query = document.getElementById('username').value.trim();
+    const name = searchMember(query);
+    const errorDiv = document.getElementById('error-message');
+    if (name) {
+        errorDiv.textContent = '';
+        showDashboard(name);
+    } else {
+        errorDiv.textContent = 'Name not found. Please try again.';
+    }
+}
+
+function showDashboard(name) {
+    document.getElementById('login-form').style.display = 'none';
+    document.getElementById('dashboard').style.display = 'block';
+    populateCharts(name);
+}
+
+function logout() {
+    document.getElementById('dashboard').style.display = 'none';
+    document.getElementById('login-form').style.display = 'block';
+    document.getElementById('username').value = '';
+    document.getElementById('error-message').textContent = '';
+}
+
+function populateCharts(name) {
+    const member = membersData[name];
+    document.getElementById('summary-total').textContent = member.total.toFixed(2);
+    document.getElementById('summary-average').textContent = member.average.toFixed(2);
+    document.getElementById('summary-count').textContent = member.count;
+    const xData = member.dates;
+    const yData = member.amounts;
+    const trace1 = { x: xData, y: yData, mode: 'lines+markers', type: 'scatter', marker: { color: '#007bff' }, line: { color: '#007bff' }, name: 'Donation' };
+    const layout1 = { margin: { t: 40 }, xaxis: { title: 'Date' }, yaxis: { title: 'Amount ($)', rangemode: 'tozero' }, title: name + ' Contributions Over Time' };
+    Plotly.newPlot('chart', [trace1], layout1, { responsive: true });
+    const yearTotals = {};
+    for (let i = 0; i < xData.length; i++) {
+        const year = xData[i].substring(0,4);
+        if (!yearTotals[year]) yearTotals[year] = 0;
+        yearTotals[year] += yData[i];
+    }
+    const years = Object.keys(yearTotals).sort();
+    const totals = years.map(y => parseFloat(yearTotals[y].toFixed(2)));
+    const barTrace = { x: years, y: totals, type: 'bar', marker: { color: '#28a745' }, name: 'Yearly Total' };
+    const layout2 = { margin: { t: 40 }, xaxis: { title: 'Year' }, yaxis: { title: 'Total Amount ($)', rangemode: 'tozero' }, title: name + ' Yearly Contribution Totals' };
+    Plotly.newPlot('yearChart', [barTrace], layout2, { responsive: true });
+}
+
+// Fetch data from JSON on page load
+fetch('membersData.json')
+    .then(response => response.json())
+    .then(data => {
+        membersData = data;
+        buildSearchMap();
+    })
+    .catch(error => {
+        document.getElementById('error-message').textContent = 'Error loading data.';
+        console.error('Error loading membersData.json:', error);
+    });
+</script>
+</body>
+</html>
